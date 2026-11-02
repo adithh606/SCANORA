@@ -1,218 +1,618 @@
 import re
 from io import BytesIO
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 from pypdf import PdfReader
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
-st.set_page_config(page_title="SCANORA | CT-RATE", page_icon="🩺", layout="wide")
+
+# ==================================================
+# PAGE CONFIGURATION
+# ==================================================
+
+st.set_page_config(
+    page_title="SCANORA | Medical Report Intelligence",
+    page_icon="🩺",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+
+# ==================================================
+# WEBSITE DESIGN
+# ==================================================
 
 st.markdown("""
 <style>
-.stApp {background:#f4f8f6;color:#173a34}
-[data-testid="stSidebar"]{background:#102b28}
-[data-testid="stSidebar"] *{color:#f3fbf7!important}
-.hero{background:linear-gradient(120deg,#102b28,#1e5149,#34786b);
-padding:34px 38px;border-radius:20px;color:white;margin-bottom:22px}
-.hero h1{color:white;font-size:44px;margin:0}
-.hero p{color:#d8eee7;font-size:16px}
-.card{background:white;border:1px solid #e1ebe7;border-radius:15px;padding:18px;margin-bottom:12px}
-.warning{background:#fff7e5;border:1px solid #efdca5;padding:14px;border-radius:12px;color:#654f18}
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+
+html, body, [class*="css"] {
+    font-family: 'DM Sans', sans-serif;
+}
+
+.stApp {
+    background: #f4f7f5;
+    color: #183b33;
+}
+
+header[data-testid="stHeader"] {
+    background: transparent;
+}
+
+[data-testid="stSidebar"] {
+    background: #102e28;
+}
+
+[data-testid="stSidebar"] * {
+    color: #f1f8f4;
+}
+
+.block-container {
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+    max-width: 1250px;
+}
+
+.hero {
+    background: linear-gradient(
+        120deg,
+        #102e28,
+        #1d5145,
+        #397b68
+    );
+    padding: 42px;
+    border-radius: 22px;
+    color: white;
+    margin-bottom: 28px;
+}
+
+.hero h1 {
+    color: white;
+    font-size: 48px;
+    font-weight: 800;
+}
+
+.hero p {
+    color: #dcefe7;
+    font-size: 16px;
+}
+
+.card {
+    background: white;
+    padding: 24px;
+    border-radius: 17px;
+    border: 1px solid #e1ebe5;
+    box-shadow: 0 4px 15px rgba(16,46,40,0.04);
+    min-height: 145px;
+}
+
+.card h3 {
+    color: #1d5145;
+    font-size: 19px;
+}
+
+.card p {
+    color: #62766e;
+    font-size: 14px;
+}
+
+.section-title {
+    font-size: 25px;
+    font-weight: 700;
+    color: #173f35;
+    margin-top: 24px;
+    margin-bottom: 15px;
+}
+
+.info-banner {
+    background: #e6f2ec;
+    border-left: 5px solid #397b68;
+    padding: 17px;
+    border-radius: 10px;
+    margin: 15px 0;
+    color: #244d40;
+}
+
+.warning {
+    background: #fff6e4;
+    border: 1px solid #ead9ad;
+    padding: 17px;
+    border-radius: 12px;
+    color: #76591c;
+    margin-top: 18px;
+}
+
+.stButton > button {
+    background: #1d5145;
+    color: white;
+    border-radius: 9px;
+    border: none;
+    padding: 10px 22px;
+    font-weight: 600;
+}
+
+.stButton > button:hover {
+    background: #347b67;
+    color: white;
+}
+
+[data-testid="stFileUploader"] {
+    background: white;
+    border-radius: 12px;
+    padding: 15px;
+    border: 1px dashed #a9c5b7;
+}
+
+.footer {
+    text-align: center;
+    color: #81938b;
+    font-size: 13px;
+    padding: 25px;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("""
-<div class="hero">
-  <h1>SCANORA</h1>
-  <p>Illuminating the invisible · CT report understanding prototype</p>
-  <p>Compare an uploaded report with reference reports from the CT-RATE dataset.</p>
+
+# ==================================================
+# MEDICAL TERMINOLOGY GLOSSARY
+# ==================================================
+
+GLOSSARY = {
+
+    "ground-glass opacity":
+        "An area in the lung that appears hazy on a CT scan. "
+        "Several causes are possible, including inflammation or infection.",
+
+    "pulmonary nodule":
+        "A small spot or growth in the lung. Its significance depends "
+        "on its size, appearance and clinical context.",
+
+    "pleural effusion":
+        "Fluid collected in the space between the lungs and chest wall.",
+
+    "atelectasis":
+        "An area of the lung that is not fully expanded.",
+
+    "lymphadenopathy":
+        "Enlarged lymph nodes. This can occur for several reasons.",
+
+    "emphysema":
+        "Damage to the air sacs in the lungs.",
+
+    "consolidation":
+        "An area of the lung that appears denser than usual.",
+
+    "cardiomegaly":
+        "An enlarged-heart appearance on imaging.",
+
+    "coronary artery calcification":
+        "Calcium deposits in the arteries that supply blood to the heart.",
+
+    "hepatic steatosis":
+        "Fat accumulation in the liver.",
+
+    "fatty liver":
+        "A condition in which extra fat builds up in the liver.",
+
+    "renal calculus":
+        "A kidney stone.",
+
+    "hydronephrosis":
+        "Swelling of a kidney due to a buildup of urine.",
+
+    "mucosal thickening":
+        "Thickening of the lining of an organ or passage.",
+
+    "degenerative changes":
+        "Wear-and-tear-type changes that may affect bones or joints."
+
+}
+
+
+# ==================================================
+# PDF EXTRACTION
+# ==================================================
+
+def extract_pdf_text(uploaded_file):
+
+    reader = PdfReader(
+        BytesIO(uploaded_file.getvalue())
+    )
+
+    text = "\n".join(
+        page.extract_text() or ""
+        for page in reader.pages
+    )
+
+    return text
+
+
+# ==================================================
+# TEXT CLEANING
+# ==================================================
+
+def clean_text(value):
+
+    if pd.isna(value):
+        return ""
+
+    return re.sub(
+        r"\s+",
+        " ",
+        str(value)
+    ).strip()
+
+
+# ==================================================
+# REPORT EXPLANATION
+# ==================================================
+
+def explain_report(report_text):
+
+    report_text = clean_text(report_text).lower()
+
+    if not report_text:
+        return []
+
+    explanations = []
+
+    sentences = re.split(
+        r"(?<=[.!?])\s+",
+        report_text
+    )
+
+    negation_words = [
+        "no ",
+        "without ",
+        "negative for ",
+        "absence of ",
+        "absent ",
+        "free of ",
+        "no evidence of ",
+        "not seen ",
+        "not identified "
+    ]
+
+    for term, meaning in GLOSSARY.items():
+
+        if term not in report_text:
+            continue
+
+        matching_sentences = [
+            sentence
+            for sentence in sentences
+            if term in sentence
+        ]
+
+        is_negated = False
+
+        for sentence in matching_sentences:
+
+            position = sentence.find(term)
+
+            preceding_text = sentence[
+                max(0, position - 60):position
+            ]
+
+            if any(
+                word in preceding_text
+                for word in negation_words
+            ):
+                is_negated = True
+                break
+
+        explanations.append({
+
+            "term": term.title(),
+
+            "meaning": meaning,
+
+            "status": (
+                "Reported as absent or not identified"
+                if is_negated
+                else "Mentioned in report — review context"
+            )
+
+        })
+
+    return explanations
+
+
+# ==================================================
+# SIDEBAR LOGO
+# ==================================================
+
+st.sidebar.markdown("""
+<div style="text-align:center;padding:20px 5px 25px;">
+<div style="font-size:42px;">🩺</div>
+<h1 style="color:white;font-size:29px;margin:5px;">SCANORA</h1>
+<p style="color:#a8c9bb;font-size:12px;">
+MEDICAL REPORT INTELLIGENCE
+</p>
 </div>
 """, unsafe_allow_html=True)
 
-st.sidebar.title("🩺 SCANORA")
-page = st.sidebar.radio("NAVIGATION", ["Home", "CT-RATE Report Matching", "About & Limitations"])
 
-# CT-RATE CSV can be stored in either of these locations.
-DEFAULT_DATA_PATHS = [
-    Path("data/radiology_text_reports/train_reports.csv"),
-    Path("data/train_reports.csv"),
-    Path("train_reports.csv"),
-]
+# ==================================================
+# NAVIGATION
+# ==================================================
 
-def extract_pdf_text(file):
-    reader = PdfReader(BytesIO(file.getvalue()))
-    return "\n".join((p.extract_text() or "") for p in reader.pages)
-
-def clean_text(value):
-    if pd.isna(value):
-        return ""
-    return re.sub(r"\s+", " ", str(value)).strip()
-
-def detect_report_columns(df):
-    # Prefer columns whose names indicate report content.
-    preferred = [
-        c for c in df.columns
-        if any(word in str(c).lower() for word in
-               ["report", "finding", "impression", "conclusion", "text"])
+page = st.sidebar.radio(
+    "NAVIGATION",
+    [
+        "🏠 Home",
+        "📤 Upload CT Report",
+        "ℹ️ About SCANORA"
     ]
-    # If column names are unfamiliar, inspect a sample and select long text columns.
-    if not preferred:
-        for c in df.select_dtypes(include=["object"]).columns:
-            sample = df[c].dropna().astype(str).head(100)
-            if len(sample) and sample.str.len().mean() > 80:
-                preferred.append(c)
-    return preferred
+)
 
-def detect_id_column(df):
-    for c in df.columns:
-        name = str(c).lower()
-        if any(x in name for x in ["volume", "study", "scan", "patient", "id"]):
-            return c
-    return None
+st.sidebar.markdown("---")
 
-@st.cache_resource(show_spinner="Loading CT-RATE reports and building text search index...")
-def build_index(csv_bytes):
-    from io import BytesIO
-    df = pd.read_csv(BytesIO(csv_bytes), low_memory=False)
-    report_cols = detect_report_columns(df)
-    if not report_cols:
-        raise ValueError(
-            "Could not identify report-text columns. Please inspect the CSV headers "
-            "and tell me their names."
-        )
+st.sidebar.markdown("""
+<div style="background:#1c443a;padding:15px;border-radius:12px;">
+<p style="font-size:13px;color:#c5e0d3;">
+PROJECT STATUS
+</p>
+<h4 style="color:white;">Research Prototype</h4>
+<p style="font-size:12px;color:#a8c9bb;">
+Educational use only. Not intended for clinical diagnosis.
+</p>
+</div>
+""", unsafe_allow_html=True)
 
-    df = df.copy()
-    df["_scanora_report"] = df[report_cols].fillna("").astype(str).agg(" ".join, axis=1)
-    df["_scanora_report"] = df["_scanora_report"].map(clean_text)
-    df = df[df["_scanora_report"].str.len() > 20].reset_index(drop=True)
 
-    if df.empty:
-        raise ValueError("No usable report text was found in the selected CSV.")
+# ==================================================
+# HOME PAGE
+# ==================================================
 
-    vectorizer = TfidfVectorizer(
-        lowercase=True,
-        stop_words="english",
-        ngram_range=(1, 2),
-        max_features=60000,
-        sublinear_tf=True
-    )
-    matrix = vectorizer.fit_transform(df["_scanora_report"])
-    id_col = detect_id_column(df)
-    return df, report_cols, id_col, vectorizer, matrix
+if page == "🏠 Home":
 
-def get_csv_bytes(uploaded_csv):
-    if uploaded_csv is not None:
-        return uploaded_csv.getvalue(), uploaded_csv.name
-
-    for path in DEFAULT_DATA_PATHS:
-        if path.exists():
-            return path.read_bytes(), str(path)
-
-    return None, None
-
-if page == "Home":
-    st.subheader("Welcome to Scanora")
-    c1, c2, c3 = st.columns(3)
-    c1.markdown('<div class="card"><h3>01 · Upload</h3>Upload a text-based CT report in PDF or TXT format.</div>', unsafe_allow_html=True)
-    c2.markdown('<div class="card"><h3>02 · Compare</h3>Search CT-RATE radiology reports for textually similar reference reports.</div>', unsafe_allow_html=True)
-    c3.markdown('<div class="card"><h3>03 · Review</h3>Read reference text and discuss your own report with a qualified clinician.</div>', unsafe_allow_html=True)
-
-    st.info("This version uses the CT-RATE radiology text-report CSV. It does not analyse CT image pixels or diagnose disease.")
-
-elif page == "CT-RATE Report Matching":
-    st.subheader("Match a report against CT-RATE reference reports")
-    st.write("Step 1: Place the official `train_reports.csv` in the project data folder, or select it below.")
-
-    uploaded_csv = st.file_uploader(
-        "CT-RATE train_reports.csv",
-        type=["csv"],
-        key="ctrate_csv"
-    )
-    csv_bytes, csv_source = get_csv_bytes(uploaded_csv)
-
-    if csv_bytes is None:
-        st.warning(
-            "CT-RATE report CSV not found. Download `train_reports.csv` from the "
-            "official CT-RATE Hugging Face dataset, then place it at "
-            "`data/radiology_text_reports/train_reports.csv`."
-        )
-        st.markdown("Official dataset: https://huggingface.co/datasets/ibrahimhamamci/CT-RATE")
-    else:
-        st.success(f"Dataset file found: {csv_source}")
-        try:
-            df, report_cols, id_col, vectorizer, report_matrix = build_index(csv_bytes)
-            st.caption(f"Loaded {len(df):,} reports · Text columns: {', '.join(map(str, report_cols))}")
-            uploaded_report = st.file_uploader(
-                "Step 2: Upload the patient's CT report (PDF or TXT)",
-                type=["pdf", "txt"],
-                key="patient_report"
-            )
-            top_k = st.slider("Number of similar reference reports", 1, 10, 5)
-
-            if uploaded_report and st.button("Find similar CT-RATE reports", type="primary"):
-                if uploaded_report.name.lower().endswith(".pdf"):
-                    query_text = extract_pdf_text(uploaded_report)
-                else:
-                    query_text = uploaded_report.getvalue().decode("utf-8", errors="replace")
-
-                query_text = clean_text(query_text)
-                if len(query_text) < 20:
-                    st.error("Could not extract enough text. If this is a scanned PDF, it needs OCR first.")
-                else:
-                    query_vector = vectorizer.transform([query_text])
-                    scores = cosine_similarity(query_vector, report_matrix).ravel()
-                    best_indices = scores.argsort()[::-1][:top_k]
-
-                    st.markdown("### Similar reference reports")
-                    st.caption(
-                        "Similarity is based on TF-IDF word overlap. It is not a clinical "
-                        "similarity score and does not mean the cases have the same diagnosis."
-                    )
-
-                    for rank, idx in enumerate(best_indices, start=1):
-                        row = df.iloc[idx]
-                        identifier = str(row[id_col]) if id_col else f"Dataset row {idx + 1}"
-                        with st.expander(
-                            f"{rank}. {identifier} · text similarity {scores[idx]:.3f}"
-                        ):
-                            st.write(row["_scanora_report"][:5000])
-                            st.caption("Reference text from CT-RATE. Not a diagnosis for the uploaded patient.")
-
-                    st.download_button(
-                        "Download extracted uploaded report text",
-                        data=query_text,
-                        file_name="scanora_uploaded_report_text.txt",
-                        mime="text/plain"
-                    )
-        except Exception as e:
-            st.error(f"Could not load or process the CT-RATE CSV: {e}")
-            st.write("If you share the CSV column names (not patient records), I can adapt the loader.")
-
-elif page == "About & Limitations":
-    st.subheader("How this prototype uses CT-RATE")
-    st.write(
-        "The official CT-RATE dataset contains paired non-contrast chest CT volumes "
-        "and radiology reports, plus labels and metadata. This website version loads "
-        "the radiology text-report CSV and retrieves textually similar reference reports."
-    )
     st.markdown("""
-    **What it does**
-    - Loads the CT-RATE `train_reports.csv` file.
-    - Extracts text from a user's PDF or TXT report.
-    - Builds a TF-IDF index over CT-RATE report text.
-    - Retrieves the top matching reference reports using cosine similarity.
+    <div class="hero">
+        <p>WELCOME TO SCANORA</p>
+        <h1>Understand Your CT Report.</h1>
+        <p>
+            A student research prototype for exploring
+            radiology report terminology and understanding
+            medical terms in simple language.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-    **What it does not do**
-    - It does not inspect CT images or DICOM files.
-    - It does not predict abnormalities or provide a diagnosis.
-    - Text similarity is not clinical similarity.
-    - It is not clinically validated and must not be used for treatment decisions.
+    st.markdown(
+        '<div class="section-title">Platform Overview</div>',
+        unsafe_allow_html=True
+    )
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+
+        st.markdown("""
+        <div class="card">
+            <h3>📤 Report Upload</h3>
+            <p>Upload CT radiology reports in PDF or TXT format.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c2:
+
+        st.markdown("""
+        <div class="card">
+            <h3>🩺 Report Understanding</h3>
+            <p>Explore selected medical terms and their simple explanations.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with c3:
+
+        st.markdown("""
+        <div class="card">
+            <h3>📖 Simple Explanations</h3>
+            <p>Understand selected medical terminology in simple language.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="section-title">How SCANORA Works</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown("""
+    <div class="info-banner">
+        <b>01 — Upload</b><br>
+        Upload a text-based CT report.
+        <br><br>
+        <b>02 — Process</b><br>
+        Extract report text and identify selected medical terminology.
+        <br><br>
+        <b>03 — Understand</b><br>
+        View simple educational explanations.
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="warning">
+        <b>Important Medical Notice</b><br>
+        SCANORA is an educational research prototype.
+        It does not diagnose diseases, analyse CT image
+        pixels or replace professional medical advice.
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ==================================================
+# UPLOAD CT REPORT PAGE
+# ==================================================
+
+elif page == "📤 Upload CT Report":
+
+    st.markdown(
+        '<div class="section-title">'
+        'Patient-Friendly Report Explanation'
+        '</div>',
+        unsafe_allow_html=True
+    )
+
+    st.write(
+        "Upload your CT report to identify selected medical "
+        "terms and view their simple explanations."
+    )
+
+    uploaded_report = st.file_uploader(
+        "Upload CT Report",
+        type=["pdf", "txt"],
+        key="explanation_report"
+    )
+
+    if uploaded_report:
+
+        try:
+
+            if uploaded_report.name.lower().endswith(".pdf"):
+
+                report_text = extract_pdf_text(
+                    uploaded_report
+                )
+
+            else:
+
+                report_text = uploaded_report.getvalue().decode(
+                    "utf-8",
+                    errors="replace"
+                )
+
+            report_text = clean_text(report_text)
+
+            if len(report_text) < 20:
+
+                st.error(
+                    "Unable to extract sufficient report text. "
+                    "A scanned PDF may require OCR."
+                )
+
+            else:
+
+                st.success("Report uploaded successfully.")
+
+                with st.expander("View Original Report Text"):
+                    st.write(report_text)
+
+                if st.button(
+                    "Explain My CT Report",
+                    type="primary"
+                ):
+
+                    explanations = explain_report(report_text)
+
+                    st.markdown(
+                        '<div class="section-title">'
+                        'Explanation Results'
+                        '</div>',
+                        unsafe_allow_html=True
+                    )
+
+                    if explanations:
+
+                        for item in explanations:
+
+                            st.markdown(f"""
+                            <div class="card" style="margin-bottom:15px;">
+                                <h3>{item['term']}</h3>
+                                <p>{item['meaning']}</p>
+                                <p><b>Status:</b> {item['status']}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                    else:
+
+                        st.info(
+                            "No terms from the current glossary "
+                            "were identified in this report."
+                        )
+
+                    st.markdown("""
+                    <div class="warning">
+                        <b>Medical Disclaimer</b><br>
+                        These explanations are educational.
+                        They do not interpret the complete report
+                        or provide a diagnosis. Always consult
+                        a qualified healthcare professional.
+                    </div>
+                    """, unsafe_allow_html=True)
+
+        except Exception as error:
+
+            st.error(
+                f"Unable to process the uploaded report: {error}"
+            )
+
+
+# ==================================================
+# ABOUT SCANORA PAGE
+# ==================================================
+
+elif page == "ℹ️ About SCANORA":
+
+    st.markdown(
+        '<div class="section-title">About SCANORA</div>',
+        unsafe_allow_html=True
+    )
+
+    st.write(
+        "SCANORA is a student research prototype designed "
+        "to explore ways of making radiology report information "
+        "easier to understand."
+    )
+
+    st.markdown("""
+    <div class="card">
+        <h3>Our Objective</h3>
+        <p>
+            To develop an educational platform that helps
+            users understand selected medical terminology
+            found in radiology reports.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="section-title">Limitations</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown("""
+    - The prototype processes radiology report text.
+    - It does not analyse CT image pixels.
+    - The glossary covers only selected medical terms.
+    - Its explanations are not clinically validated.
+    - It must not be used for diagnosis or treatment decisions.
     """)
-    st.markdown('<div class="warning"><b>Privacy:</b> Use de-identified sample reports only. Do not upload identifiable patient information to this student prototype.</div>', unsafe_allow_html=True)
-    st.markdown("**Dataset terms:** CT-RATE is released under CC-BY-NC-SA-4.0 and its access terms restrict use to academic/research purposes and prohibit commercial exploitation and redistribution. Read and follow the current dataset terms before use.")
+
+    st.markdown("""
+    <div class="warning">
+        <b>Privacy and Safety</b><br>
+        Use only de-identified sample reports.
+        Do not upload reports containing personal
+        or identifiable patient information.
+    </div>
+    """, unsafe_allow_html=True)
+
+
+# ==================================================
+# FOOTER
+# ==================================================
 
 st.markdown("---")
-st.caption("SCANORA · Student research prototype · Not for diagnosis or treatment")
+
+st.markdown("""
+<div class="footer">
+    <b>SCANORA</b> · Illuminating the Invisible
+    <br>
+    Student Research Prototype · 2026–2027
+    <br><br>
+    Not intended for clinical diagnosis or treatment.
+</div>
+""", unsafe_allow_html=True)
