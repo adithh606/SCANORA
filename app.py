@@ -1,3 +1,4 @@
+```python
 import re
 from io import BytesIO
 
@@ -12,7 +13,7 @@ import pytesseract
 # ==========================================
 
 st.set_page_config(
-    page_title="SCANORA AI",
+    page_title="SCANORA",
     page_icon="🩺",
     layout="wide"
 )
@@ -136,10 +137,8 @@ def extract_image_text(image_bytes):
 
     image = Image.open(BytesIO(image_bytes))
 
-    # Convert image to RGB
     image = image.convert("RGB")
 
-    # Extract text using OCR
     extracted_text = pytesseract.image_to_string(image)
 
     return extracted_text
@@ -204,10 +203,10 @@ def explain_report(report_text):
 
 
 # ==========================================
-# SIDEBAR
+# SIDEBAR NAVIGATION
 # ==========================================
 
-st.sidebar.markdown("# 🩺 SCANORA AI")
+st.sidebar.markdown("# 🩺 SCANORA")
 
 st.sidebar.caption("MEDICAL REPORT INTELLIGENCE")
 
@@ -232,10 +231,10 @@ if page == "Home":
     st.markdown("""
     <div class="hero">
 
-        <h1>Welcome to SCANORA  🩺</h1>
+        <h1>Welcome to SCANORA 🩺</h1>
 
         <p>
-        Understand  your CT reports
+        Understand medical language in your CT reports
         with simple explanations.
         </p>
 
@@ -245,7 +244,7 @@ if page == "Home":
     st.subheader("Making medical reports easier to understand")
 
     st.write("""
-    SCANORA AI is an educational prototype designed to
+    SCANORA is an educational prototype designed to
     simplify selected medical terms found in radiology reports.
 
     Upload your report in PDF, TXT, JPG, JPEG or PNG format
@@ -289,9 +288,7 @@ elif page == "Upload CT Report":
     """)
 
     uploaded_file = st.file_uploader(
-
         "Choose your report",
-
         type=[
             "pdf",
             "txt",
@@ -299,7 +296,6 @@ elif page == "Upload CT Report":
             "jpeg",
             "png"
         ]
-
     )
 
     if uploaded_file is not None:
@@ -440,10 +436,10 @@ elif page == "Upload CT Report":
 
 elif page == "About SCANORA":
 
-    st.title("ℹ️ About SCANORA AI")
+    st.title("ℹ️ About SCANORA")
 
     st.write("""
-    SCANORA AI is an educational prototype developed to
+    SCANORA is an educational prototype developed to
     make selected medical terms in radiology reports
     easier to understand.
     """)
@@ -480,7 +476,7 @@ elif page == "About SCANORA":
     """)
 
     st.info("""
-    SCANORA AI is an educational prototype.
+    SCANORA is an educational prototype.
     It is not a substitute for professional medical advice,
     diagnosis or treatment.
     """)
@@ -492,5 +488,5 @@ elif page == "About SCANORA":
 
 st.sidebar.markdown("---")
 
-st.sidebar.caption("SCANORA AI | Educational Prototype")
-
+st.sidebar.caption("SCANORA | Educational Prototype")
+```
