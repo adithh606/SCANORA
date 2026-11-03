@@ -232,10 +232,10 @@ if page == "Home":
     st.markdown("""
     <div class="hero">
 
-        <h1>Welcome to SCANORA AI 🩺</h1>
+        <h1>Welcome to SCANORA  🩺</h1>
 
         <p>
-        Understand medical language in your CT reports
+        Understand  your CT reports
         with simple explanations.
         </p>
 
