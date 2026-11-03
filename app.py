@@ -1,4 +1,5 @@
 import re
+import shutil
 from io import BytesIO
 
 import streamlit as st
@@ -134,8 +135,17 @@ def extract_pdf_text(file_bytes):
 
 def extract_image_text(image_bytes):
 
-    image = Image.open(BytesIO(image_bytes))
+    tesseract_path = shutil.which("tesseract")
 
+    if not tesseract_path:
+        raise RuntimeError(
+            "Tesseract is not installed. "
+            "Please check the Streamlit deployment build."
+        )
+
+    pytesseract.pytesseract.tesseract_cmd = tesseract_path
+
+    image = Image.open(BytesIO(image_bytes))
     image = image.convert("RGB")
 
     extracted_text = pytesseract.image_to_string(image)
