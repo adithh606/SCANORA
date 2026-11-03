@@ -1,4 +1,3 @@
-```python
 import re
 from io import BytesIO
 
@@ -494,4 +493,4 @@ elif page == "About SCANORA":
 st.sidebar.markdown("---")
 
 st.sidebar.caption("SCANORA AI | Educational Prototype")
-```
+
