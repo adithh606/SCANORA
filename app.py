@@ -226,20 +226,16 @@ page = st.sidebar.radio(
 # ==========================================
 
 if page == "Home":
-
-    st.markdown("""
-    <div class="hero">
-
-        <h1>Welcome to SCANORA 🩺</h1>
-
-        <p>
-        Understand medical language in your CT reports
-        with simple explanations.
-        </p>
-
-    </div>
-    """, unsafe_allow_html=True)
-
+    st.markdown(
+        """
+        <div class="hero">
+            <h1>Welcome to SCANORA 🩺</h1>
+            <p>Understand medical language in your CT reports
+            with simple explanations.</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
     st.subheader("Making medical reports easier to understand")
 
     st.write("""
