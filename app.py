@@ -1,618 +1,497 @@
+```python
 import re
 from io import BytesIO
 
-import pandas as pd
 import streamlit as st
 from pypdf import PdfReader
+from PIL import Image
+import pytesseract
 
 
-# ==================================================
+# ==========================================
 # PAGE CONFIGURATION
-# ==================================================
+# ==========================================
 
 st.set_page_config(
-    page_title="SCANORA | Medical Report Intelligence",
+    page_title="SCANORA AI",
     page_icon="🩺",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
 
-# ==================================================
-# WEBSITE DESIGN
-# ==================================================
+# ==========================================
+# CUSTOM STYLING
+# ==========================================
 
 st.markdown("""
 <style>
 
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
-
-html, body, [class*="css"] {
-    font-family: 'DM Sans', sans-serif;
-}
-
 .stApp {
-    background: #f4f7f5;
-    color: #183b33;
-}
-
-header[data-testid="stHeader"] {
-    background: transparent;
+    background-color: #f5f8f5;
+    color: #183b2b;
 }
 
 [data-testid="stSidebar"] {
-    background: #102e28;
+    background-color: #173d2b;
 }
 
 [data-testid="stSidebar"] * {
-    color: #f1f8f4;
-}
-
-.block-container {
-    padding-top: 2rem;
-    padding-bottom: 3rem;
-    max-width: 1250px;
+    color: white !important;
 }
 
 .hero {
-    background: linear-gradient(
-        120deg,
-        #102e28,
-        #1d5145,
-        #397b68
-    );
-    padding: 42px;
-    border-radius: 22px;
+    background: linear-gradient(120deg, #173d2b, #397653);
+    padding: 35px;
+    border-radius: 18px;
     color: white;
-    margin-bottom: 28px;
+    margin-bottom: 25px;
 }
 
-.hero h1 {
+.hero h1, .hero p {
     color: white;
-    font-size: 48px;
-    font-weight: 800;
 }
 
-.hero p {
-    color: #dcefe7;
-    font-size: 16px;
-}
-
-.card {
+.result-card {
     background: white;
-    padding: 24px;
-    border-radius: 17px;
-    border: 1px solid #e1ebe5;
-    box-shadow: 0 4px 15px rgba(16,46,40,0.04);
-    min-height: 145px;
-}
-
-.card h3 {
-    color: #1d5145;
-    font-size: 19px;
-}
-
-.card p {
-    color: #62766e;
-    font-size: 14px;
-}
-
-.section-title {
-    font-size: 25px;
-    font-weight: 700;
-    color: #173f35;
-    margin-top: 24px;
-    margin-bottom: 15px;
-}
-
-.info-banner {
-    background: #e6f2ec;
-    border-left: 5px solid #397b68;
-    padding: 17px;
+    border-left: 5px solid #397653;
+    padding: 18px;
     border-radius: 10px;
-    margin: 15px 0;
-    color: #244d40;
-}
-
-.warning {
-    background: #fff6e4;
-    border: 1px solid #ead9ad;
-    padding: 17px;
-    border-radius: 12px;
-    color: #76591c;
-    margin-top: 18px;
-}
-
-.stButton > button {
-    background: #1d5145;
-    color: white;
-    border-radius: 9px;
-    border: none;
-    padding: 10px 22px;
-    font-weight: 600;
-}
-
-.stButton > button:hover {
-    background: #347b67;
-    color: white;
-}
-
-[data-testid="stFileUploader"] {
-    background: white;
-    border-radius: 12px;
-    padding: 15px;
-    border: 1px dashed #a9c5b7;
-}
-
-.footer {
-    text-align: center;
-    color: #81938b;
-    font-size: 13px;
-    padding: 25px;
+    margin: 12px 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 
 </style>
 """, unsafe_allow_html=True)
 
 
-# ==================================================
-# MEDICAL TERMINOLOGY GLOSSARY
-# ==================================================
+# ==========================================
+# MEDICAL GLOSSARY
+# ==========================================
 
 GLOSSARY = {
 
     "ground-glass opacity":
-        "An area in the lung that appears hazy on a CT scan. "
-        "Several causes are possible, including inflammation or infection.",
+    "An area in the lung that appears hazy on a CT scan. It may have several causes.",
 
     "pulmonary nodule":
-        "A small spot or growth in the lung. Its significance depends "
-        "on its size, appearance and clinical context.",
+    "A small rounded spot in the lung. Many are benign, but medical follow-up may be recommended.",
 
     "pleural effusion":
-        "Fluid collected in the space between the lungs and chest wall.",
+    "Fluid collected in the space between the lung and chest wall.",
 
     "atelectasis":
-        "An area of the lung that is not fully expanded.",
+    "Partial or complete collapse of a small area of the lung.",
 
     "lymphadenopathy":
-        "Enlarged lymph nodes. This can occur for several reasons.",
+    "Enlarged lymph nodes. Its significance depends on the clinical context.",
 
     "emphysema":
-        "Damage to the air sacs in the lungs.",
+    "A lung condition in which air sacs are damaged.",
 
     "consolidation":
-        "An area of the lung that appears denser than usual.",
+    "An area of lung where air spaces are filled with fluid or other material.",
 
     "cardiomegaly":
-        "An enlarged-heart appearance on imaging.",
+    "An enlargement of the heart.",
 
     "coronary artery calcification":
-        "Calcium deposits in the arteries that supply blood to the heart.",
+    "Calcium deposits in the arteries that supply blood to the heart.",
 
     "hepatic steatosis":
-        "Fat accumulation in the liver.",
+    "Fat accumulation in the liver, commonly called fatty liver.",
 
     "fatty liver":
-        "A condition in which extra fat builds up in the liver.",
+    "Fat accumulation in the liver.",
 
     "renal calculus":
-        "A kidney stone.",
+    "A kidney stone.",
 
     "hydronephrosis":
-        "Swelling of a kidney due to a buildup of urine.",
+    "Swelling of a kidney due to a build-up of urine.",
 
     "mucosal thickening":
-        "Thickening of the lining of an organ or passage.",
+    "Thickening of the lining of a hollow organ or cavity.",
 
     "degenerative changes":
-        "Wear-and-tear-type changes that may affect bones or joints."
-
+    "Wear-and-tear changes in joints, bones, or discs."
 }
 
 
-# ==================================================
-# PDF EXTRACTION
-# ==================================================
+# ==========================================
+# FILE EXTRACTION FUNCTIONS
+# ==========================================
 
-def extract_pdf_text(uploaded_file):
+def extract_pdf_text(file_bytes):
 
-    reader = PdfReader(
-        BytesIO(uploaded_file.getvalue())
+    reader = PdfReader(BytesIO(file_bytes))
+
+    pages = []
+
+    for page in reader.pages:
+        pages.append(page.extract_text() or "")
+
+    return "\n".join(pages)
+
+
+def extract_image_text(image_bytes):
+
+    image = Image.open(BytesIO(image_bytes))
+
+    # Convert image to RGB
+    image = image.convert("RGB")
+
+    # Extract text using OCR
+    extracted_text = pytesseract.image_to_string(image)
+
+    return extracted_text
+
+
+def clean_text(text):
+
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
+
+
+# ==========================================
+# MEDICAL TERM EXPLANATION
+# ==========================================
+
+NEGATION_CUES = [
+    "no ",
+    "not seen",
+    "without ",
+    "negative for",
+    "absence of",
+    "no evidence of",
+    "there is no"
+]
+
+
+def is_negated(text, term):
+
+    lower_text = text.lower()
+
+    start = lower_text.find(term.lower())
+
+    if start == -1:
+        return False
+
+    nearby_text = lower_text[max(0, start - 65):start]
+
+    return any(
+        cue in nearby_text
+        for cue in NEGATION_CUES
     )
 
-    text = "\n".join(
-        page.extract_text() or ""
-        for page in reader.pages
-    )
-
-    return text
-
-
-# ==================================================
-# TEXT CLEANING
-# ==================================================
-
-def clean_text(value):
-
-    if pd.isna(value):
-        return ""
-
-    return re.sub(
-        r"\s+",
-        " ",
-        str(value)
-    ).strip()
-
-
-# ==================================================
-# REPORT EXPLANATION
-# ==================================================
 
 def explain_report(report_text):
 
-    report_text = clean_text(report_text).lower()
+    lower_text = report_text.lower()
 
-    if not report_text:
-        return []
+    findings = []
 
-    explanations = []
+    for term, explanation in GLOSSARY.items():
 
-    sentences = re.split(
-        r"(?<=[.!?])\s+",
-        report_text
-    )
+        if term in lower_text:
 
-    negation_words = [
-        "no ",
-        "without ",
-        "negative for ",
-        "absence of ",
-        "absent ",
-        "free of ",
-        "no evidence of ",
-        "not seen ",
-        "not identified "
-    ]
+            findings.append({
+                "term": term,
+                "explanation": explanation,
+                "negated": is_negated(report_text, term)
+            })
 
-    for term, meaning in GLOSSARY.items():
-
-        if term not in report_text:
-            continue
-
-        matching_sentences = [
-            sentence
-            for sentence in sentences
-            if term in sentence
-        ]
-
-        is_negated = False
-
-        for sentence in matching_sentences:
-
-            position = sentence.find(term)
-
-            preceding_text = sentence[
-                max(0, position - 60):position
-            ]
-
-            if any(
-                word in preceding_text
-                for word in negation_words
-            ):
-                is_negated = True
-                break
-
-        explanations.append({
-
-            "term": term.title(),
-
-            "meaning": meaning,
-
-            "status": (
-                "Reported as absent or not identified"
-                if is_negated
-                else "Mentioned in report — review context"
-            )
-
-        })
-
-    return explanations
+    return findings
 
 
-# ==================================================
-# SIDEBAR LOGO
-# ==================================================
+# ==========================================
+# SIDEBAR
+# ==========================================
 
-st.sidebar.markdown("""
-<div style="text-align:center;padding:20px 5px 25px;">
-<div style="font-size:42px;">🩺</div>
-<h1 style="color:white;font-size:29px;margin:5px;">SCANORA</h1>
-<p style="color:#a8c9bb;font-size:12px;">
-MEDICAL REPORT INTELLIGENCE
-</p>
-</div>
-""", unsafe_allow_html=True)
+st.sidebar.markdown("# 🩺 SCANORA AI")
 
-
-# ==================================================
-# NAVIGATION
-# ==================================================
-
-page = st.sidebar.radio(
-    "NAVIGATION",
-    [
-        "🏠 Home",
-        "📤 Upload CT Report",
-        "ℹ️ About SCANORA"
-    ]
-)
+st.sidebar.caption("MEDICAL REPORT INTELLIGENCE")
 
 st.sidebar.markdown("---")
 
-st.sidebar.markdown("""
-<div style="background:#1c443a;padding:15px;border-radius:12px;">
-<p style="font-size:13px;color:#c5e0d3;">
-PROJECT STATUS
-</p>
-<h4 style="color:white;">Research Prototype</h4>
-<p style="font-size:12px;color:#a8c9bb;">
-Educational use only. Not intended for clinical diagnosis.
-</p>
-</div>
-""", unsafe_allow_html=True)
+page = st.sidebar.radio(
+    "Navigation",
+    [
+        "Home",
+        "Upload CT Report",
+        "About SCANORA"
+    ]
+)
 
 
-# ==================================================
+# ==========================================
 # HOME PAGE
-# ==================================================
+# ==========================================
 
-if page == "🏠 Home":
+if page == "Home":
 
     st.markdown("""
     <div class="hero">
-        <p>WELCOME TO SCANORA</p>
-        <h1>Understand Your CT Report.</h1>
+
+        <h1>Welcome to SCANORA AI 🩺</h1>
+
         <p>
-            A student research prototype for exploring
-            radiology report terminology and understanding
-            medical terms in simple language.
+        Understand medical language in your CT reports
+        with simple explanations.
         </p>
+
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown(
-        '<div class="section-title">Platform Overview</div>',
-        unsafe_allow_html=True
-    )
+    st.subheader("Making medical reports easier to understand")
 
-    c1, c2, c3 = st.columns(3)
+    st.write("""
+    SCANORA AI is an educational prototype designed to
+    simplify selected medical terms found in radiology reports.
 
-    with c1:
+    Upload your report in PDF, TXT, JPG, JPEG or PNG format
+    and view explanations of selected medical terms.
+    """)
 
-        st.markdown("""
-        <div class="card">
-            <h3>📤 Report Upload</h3>
-            <p>Upload CT radiology reports in PDF or TXT format.</p>
-        </div>
-        """, unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3)
 
-    with c2:
+    with col1:
 
-        st.markdown("""
-        <div class="card">
-            <h3>🩺 Report Understanding</h3>
-            <p>Explore selected medical terms and their simple explanations.</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("### 📄 Document Upload")
 
-    with c3:
+        st.write("Upload PDF or TXT reports.")
 
-        st.markdown("""
-        <div class="card">
-            <h3>📖 Simple Explanations</h3>
-            <p>Understand selected medical terminology in simple language.</p>
-        </div>
-        """, unsafe_allow_html=True)
+    with col2:
 
-    st.markdown(
-        '<div class="section-title">How SCANORA Works</div>',
-        unsafe_allow_html=True
-    )
+        st.markdown("### 🖼️ Image Upload")
 
-    st.markdown("""
-    <div class="info-banner">
-        <b>01 — Upload</b><br>
-        Upload a text-based CT report.
-        <br><br>
-        <b>02 — Process</b><br>
-        Extract report text and identify selected medical terminology.
-        <br><br>
-        <b>03 — Understand</b><br>
-        View simple educational explanations.
-    </div>
-    """, unsafe_allow_html=True)
+        st.write("Upload JPG, JPEG or PNG report images.")
 
-    st.markdown("""
-    <div class="warning">
-        <b>Important Medical Notice</b><br>
-        SCANORA is an educational research prototype.
-        It does not diagnose diseases, analyse CT image
-        pixels or replace professional medical advice.
-    </div>
-    """, unsafe_allow_html=True)
+    with col3:
+
+        st.markdown("### 💡 Simple Explanations")
+
+        st.write("Understand selected medical terms easily.")
+
+    st.info("Select Upload CT Report from the sidebar to begin.")
 
 
-# ==================================================
+# ==========================================
 # UPLOAD CT REPORT PAGE
-# ==================================================
+# ==========================================
 
-elif page == "📤 Upload CT Report":
+elif page == "Upload CT Report":
 
-    st.markdown(
-        '<div class="section-title">'
-        'Patient-Friendly Report Explanation'
-        '</div>',
-        unsafe_allow_html=True
+    st.title("📤 Upload Your CT Report")
+
+    st.write("""
+    Upload your CT report as a PDF, TXT or image file.
+    SCANORA will extract the text and explain selected medical terms.
+    """)
+
+    uploaded_file = st.file_uploader(
+
+        "Choose your report",
+
+        type=[
+            "pdf",
+            "txt",
+            "jpg",
+            "jpeg",
+            "png"
+        ]
+
     )
 
-    st.write(
-        "Upload your CT report to identify selected medical "
-        "terms and view their simple explanations."
-    )
+    if uploaded_file is not None:
 
-    uploaded_report = st.file_uploader(
-        "Upload CT Report",
-        type=["pdf", "txt"],
-        key="explanation_report"
-    )
-
-    if uploaded_report:
+        file_name = uploaded_file.name.lower()
 
         try:
 
-            if uploaded_report.name.lower().endswith(".pdf"):
+            # PDF EXTRACTION
+
+            if file_name.endswith(".pdf"):
 
                 report_text = extract_pdf_text(
-                    uploaded_report
+                    uploaded_file.read()
                 )
+
+            # TXT EXTRACTION
+
+            elif file_name.endswith(".txt"):
+
+                report_text = uploaded_file.read().decode(
+                    "utf-8",
+                    errors="ignore"
+                )
+
+            # IMAGE OCR EXTRACTION
 
             else:
 
-                report_text = uploaded_report.getvalue().decode(
-                    "utf-8",
-                    errors="replace"
+                image_bytes = uploaded_file.read()
+
+                st.subheader("Uploaded Report Image")
+
+                st.image(
+                    image_bytes,
+                    caption="Uploaded medical report",
+                    use_container_width=True
                 )
+
+                with st.spinner("Extracting text from image..."):
+
+                    report_text = extract_image_text(image_bytes)
 
             report_text = clean_text(report_text)
 
-            if len(report_text) < 20:
+            # CHECK EXTRACTED TEXT
 
-                st.error(
-                    "Unable to extract sufficient report text. "
-                    "A scanned PDF may require OCR."
-                )
+            if not report_text:
+
+                st.warning("""
+                No readable text was found.
+
+                Please upload a clearer image or a text-based PDF.
+                """)
 
             else:
 
-                st.success("Report uploaded successfully.")
+                st.success("Report text extracted successfully!")
 
-                with st.expander("View Original Report Text"):
+                # SHOW EXTRACTED TEXT
+
+                with st.expander("View Extracted Report Text"):
+
                     st.write(report_text)
 
-                if st.button(
-                    "Explain My CT Report",
-                    type="primary"
-                ):
+                # FIND MEDICAL TERMS
 
-                    explanations = explain_report(report_text)
+                st.subheader("💡 Simplified Medical Explanations")
 
-                    st.markdown(
-                        '<div class="section-title">'
-                        'Explanation Results'
-                        '</div>',
-                        unsafe_allow_html=True
-                    )
+                findings = explain_report(report_text)
 
-                    if explanations:
+                if findings:
 
-                        for item in explanations:
+                    for item in findings:
 
-                            st.markdown(f"""
-                            <div class="card" style="margin-bottom:15px;">
-                                <h3>{item['term']}</h3>
-                                <p>{item['meaning']}</p>
-                                <p><b>Status:</b> {item['status']}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
+                        if item["negated"]:
 
-                    else:
+                            st.markdown(
+                                f"""
+                                <div class="result-card">
 
-                        st.info(
-                            "No terms from the current glossary "
-                            "were identified in this report."
-                        )
+                                <h4>{item['term'].title()}</h4>
 
-                    st.markdown("""
-                    <div class="warning">
-                        <b>Medical Disclaimer</b><br>
-                        These explanations are educational.
-                        They do not interpret the complete report
-                        or provide a diagnosis. Always consult
-                        a qualified healthcare professional.
-                    </div>
-                    """, unsafe_allow_html=True)
+                                <p><b>Possible report context:</b>
+                                This term appears near wording that may
+                                indicate it is absent.</p>
+
+                                <p>{item['explanation']}</p>
+
+                                </div>
+                                """,
+                                unsafe_allow_html=True
+                            )
+
+                        else:
+
+                            st.markdown(
+                                f"""
+                                <div class="result-card">
+
+                                <h4>{item['term'].title()}</h4>
+
+                                <p>{item['explanation']}</p>
+
+                                </div>
+                                """,
+                                unsafe_allow_html=True
+                            )
+
+                else:
+
+                    st.info("""
+                    No terms from the current SCANORA glossary
+                    were identified.
+
+                    This does not mean that the report is normal.
+                    """)
+
+                st.warning("""
+                IMPORTANT:
+
+                SCANORA provides general educational explanations only.
+                It does not diagnose diseases or recommend treatment.
+
+                The glossary and simple negation check have limitations.
+                Always consult a qualified healthcare professional
+                for interpretation of your complete report.
+                """)
 
         except Exception as error:
 
-            st.error(
-                f"Unable to process the uploaded report: {error}"
-            )
+            st.error(f"Unable to process this file: {error}")
 
 
-# ==================================================
+# ==========================================
 # ABOUT SCANORA PAGE
-# ==================================================
+# ==========================================
 
-elif page == "ℹ️ About SCANORA":
+elif page == "About SCANORA":
 
-    st.markdown(
-        '<div class="section-title">About SCANORA</div>',
-        unsafe_allow_html=True
-    )
+    st.title("ℹ️ About SCANORA AI")
 
-    st.write(
-        "SCANORA is a student research prototype designed "
-        "to explore ways of making radiology report information "
-        "easier to understand."
-    )
-
-    st.markdown("""
-    <div class="card">
-        <h3>Our Objective</h3>
-        <p>
-            To develop an educational platform that helps
-            users understand selected medical terminology
-            found in radiology reports.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown(
-        '<div class="section-title">Limitations</div>',
-        unsafe_allow_html=True
-    )
-
-    st.markdown("""
-    - The prototype processes radiology report text.
-    - It does not analyse CT image pixels.
-    - The glossary covers only selected medical terms.
-    - Its explanations are not clinically validated.
-    - It must not be used for diagnosis or treatment decisions.
+    st.write("""
+    SCANORA AI is an educational prototype developed to
+    make selected medical terms in radiology reports
+    easier to understand.
     """)
 
-    st.markdown("""
-    <div class="warning">
-        <b>Privacy and Safety</b><br>
-        Use only de-identified sample reports.
-        Do not upload reports containing personal
-        or identifiable patient information.
-    </div>
-    """, unsafe_allow_html=True)
+    st.subheader("How SCANORA Works")
+
+    st.write("""
+    1. The user uploads a medical report.
+    2. The system extracts text from the uploaded file.
+    3. OCR is used to extract text from report images.
+    4. The system searches for selected medical terms.
+    5. Simple explanations are displayed to the user.
+    """)
+
+    st.subheader("Supported File Formats")
+
+    st.write("""
+    - PDF documents
+    - TXT documents
+    - JPG images
+    - JPEG images
+    - PNG images
+    """)
+
+    st.subheader("Important Limitations")
+
+    st.write("""
+    - SCANORA does not analyse CT scan pixels or DICOM images.
+    - It does not generate a medical diagnosis.
+    - It uses a predefined medical glossary.
+    - OCR may make mistakes when images are blurry or unclear.
+    - Its simple negation check may misunderstand sentence context.
+    - It has not been clinically validated.
+    """)
+
+    st.info("""
+    SCANORA AI is an educational prototype.
+    It is not a substitute for professional medical advice,
+    diagnosis or treatment.
+    """)
 
 
-# ==================================================
+# ==========================================
 # FOOTER
-# ==================================================
+# ==========================================
 
-st.markdown("---")
+st.sidebar.markdown("---")
 
-st.markdown("""
-<div class="footer">
-    <b>SCANORA</b> · Illuminating the Invisible
-    <br>
-    Student Research Prototype · 2026–2027
-    <br><br>
-    Not intended for clinical diagnosis or treatment.
-</div>
-""", unsafe_allow_html=True)
+st.sidebar.caption("SCANORA AI | Educational Prototype")
+```
