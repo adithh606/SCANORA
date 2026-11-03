@@ -1,6 +1,4 @@
-```text
 streamlit
 pypdf
 pytesseract
-Pillow
-```
+pillow
